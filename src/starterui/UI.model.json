@@ -1,0 +1,84 @@
+{
+    "ClassName" : "ScreenGui",
+
+    "Children" : [
+        {
+            "Name" : "RegenerateButton",
+            "ClassName" : "TextButton",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 90], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 0], [1, -95]]},
+                "Text" : "Regenerate\nPath",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextScaled" : true
+            }
+        },
+        {
+            "Name" : "EndPosition",
+            "ClassName" : "TextBox",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 150], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 95], [1, -45]]},
+                "Text" : "",
+                "PlaceholderText" : "Set end goal\n(x,y,z)",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "PlaceholderColor3" : {"Color3" : [0.5, 0, 0.5]},
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextSize" : 12
+            }
+        },
+        {
+            "Name" : "StartPosition",
+            "ClassName" : "TextBox",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 150], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 250], [1, -45]]},
+                "Text" : "",
+                "PlaceholderText" : "Set start position\n(x,y,z)",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "PlaceholderColor3" : {"Color3" : [0.5, 0, 0.5]},
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextSize" : 12
+            }
+        },
+        {
+            "Name" : "UpdateLogLevel",
+            "ClassName" : "TextBox",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 90], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 0], [1, -45]]},
+                "Text" : "",
+                "PlaceholderText" : "Change log \nlevel (int)",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "PlaceholderColor3" : {"Color3" : [0.5, 0, 0.5]},
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextSize" : 12
+            }
+        },
+        {
+            "Name" : "UpdateDelay",
+            "ClassName" : "TextBox",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 150], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 95], [1, -95]]},
+                "Text" : "",
+                "PlaceholderText" : "Change delay inte-\nrval if laggy (int)",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "PlaceholderColor3" : {"Color3" : [0.5, 0, 0.5]},
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextSize" : 12
+            }
+        }
+    ]
+}
