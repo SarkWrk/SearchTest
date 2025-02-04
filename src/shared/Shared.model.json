@@ -1,0 +1,45 @@
+{
+    "ClassName" : "Folder",
+
+    "Children" : [
+        {
+            "Name" : "Regenerate",
+            "ClassName" : "BindableEvent"
+        },
+        {
+            "Name" : "EndPosition",
+            "ClassName" : "Vector3Value",
+            "Properties" : {
+                "Value" : {"Vector3" : [-100, 1, -100]}
+            }
+        },
+        {
+            "Name" : "StartPosition",
+            "ClassName" : "Vector3Value",
+            "Properties" : {
+                "Value" : {"Vector3" : [100, 5, 100]}
+            }
+        },
+        {
+            "Name" : "TickDelay",
+            "ClassName" : "IntValue",
+            "Properties" : {
+                "Value" : 25
+            }
+        },
+        {
+            "Name" : "LogLevel",
+            "ClassName" : "IntValue",
+            "Properties" : {
+                "Value" : 1
+            }
+        },
+        {
+            "Name" : "ShowLabels",
+            "ClassName" : "BoolValue",
+            "Properties" : {
+                "Value" : true
+            }
+        }
+    ]
+}

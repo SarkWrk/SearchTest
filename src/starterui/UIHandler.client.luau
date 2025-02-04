@@ -15,6 +15,10 @@ function RegeneratePath() : ()
     game:GetService("ReplicatedStorage").Shared.Regenerate:Fire()
 end
 
+function ShowLabelsSwitch(value : boolean) : ()
+    game:GetService("ReplicatedStorage").Shared.ShowLabels.Value = value
+end
+
 function ChangeValue(text : string, valueToChange : number) : ()
     -- Logging purposes
     local value_chosen = ""
@@ -27,6 +31,8 @@ function ChangeValue(text : string, valueToChange : number) : ()
         value_chosen = "log level"
     elseif valueToChange == 3 then
         value_chosen = "tick delay"
+    elseif valueToChange == 4 then
+        value_chosen = "walkspeed"
     end
 
     local cleanedText = ""
@@ -46,6 +52,10 @@ function ChangeValue(text : string, valueToChange : number) : ()
         end
 
         if character == "-" then
+            cleanedText = cleanedText .. character
+        end
+
+        if character == "." then
             cleanedText = cleanedText .. character
         end
     end
@@ -87,7 +97,17 @@ function ChangeValue(text : string, valueToChange : number) : ()
     -- Change tick delay
     elseif valueToChange == 3 then
         print("Updated delay interval")
+
+        -- Prevent the game from dying
+        if value_one == nil or value_one == 0 then
+            value_one = math.huge
+        end
+
         game:GetService("ReplicatedStorage").Shared.TickDelay.Value = value_one
+    -- Change log level
+    elseif valueToChange == 4 then
+        print("Updated WalkSpeed")
+        game:GetService("Players").LocalPlayer.Character:WaitForChild("Humanoid").WalkSpeed = value_one
     end
 end
 
@@ -106,3 +126,8 @@ end)
 UI.UpdateDelay:GetPropertyChangedSignal("Text"):Connect(function()
     ChangeValue(UI.UpdateDelay.Text, 3)
 end)
+
+UI.UpdateWalkspeed:GetPropertyChangedSignal("Text"):Connect(function()
+    ChangeValue(UI.UpdateWalkspeed.Text, 4)
+end)
+UI.SHowLabelsButton.Activated:Connect(ShowLabelsSwitch)

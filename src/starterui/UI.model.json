@@ -8,7 +8,21 @@
             "Properties" : {
                 "Size" : {"UDim2" : [[0, 90], [0, 45]]},
                 "Position" : {"UDim2" : [[0, 0], [1, -95]]},
-                "Text" : "Regenerate\nPath",
+                "Text" : "Regenerate\npath",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextScaled" : true
+            }
+        },
+        {
+            "Name" : "SHowLabelsButton",
+            "ClassName" : "TextButton",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 90], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 0], [1, -145]]},
+                "Text" : "Show\nlabels",
                 "BackgroundColor3" : {"Color3" : [1, 1, 1]},
                 "BorderSizePixel" : 0,
                 "BackgroundTransparency" : 0.5,
@@ -72,6 +86,22 @@
                 "Position" : {"UDim2" : [[0, 95], [1, -95]]},
                 "Text" : "",
                 "PlaceholderText" : "Change delay inte-\nrval if laggy (int)",
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "PlaceholderColor3" : {"Color3" : [0.5, 0, 0.5]},
+                "TextColor3" : {"Color3" : [0, 0, 0]},
+                "TextSize" : 12
+            }
+        },
+        {
+            "Name" : "UpdateWalkspeed",
+            "ClassName" : "TextBox",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 150], [0, 45]]},
+                "Position" : {"UDim2" : [[0, 250], [1, -95]]},
+                "Text" : "",
+                "PlaceholderText" : "Change Walkspeed\n(double)",
                 "BackgroundColor3" : {"Color3" : [1, 1, 1]},
                 "BorderSizePixel" : 0,
                 "BackgroundTransparency" : 0.5,
