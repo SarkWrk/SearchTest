@@ -16,10 +16,13 @@ function RegeneratePath() : ()
 end
 
 function ShowLabelsSwitch(value : boolean) : ()
-    game:GetService("ReplicatedStorage").Shared.ShowLabels.Value = value
+    if log_level >= 1 then
+        print("Changling show labels to " .. tostring(not game:GetService("ReplicatedStorage").Shared.ShowLabels.Value))
+    end
+    game:GetService("ReplicatedStorage").Shared.ShowLabels.Value = not game:GetService("ReplicatedStorage").Shared.ShowLabels.Value
 end
 
-function ChangeValue(text : string, valueToChange : number) : ()
+function ChangeValue(text : string, valueToChange : number, valueType : "uint"|"int"|"ufloat"|"float") : ()
     -- Logging purposes
     local value_chosen = ""
 
@@ -51,12 +54,16 @@ function ChangeValue(text : string, valueToChange : number) : ()
             cleanedText = cleanedText .. character
         end
 
-        if character == "-" then
-            cleanedText = cleanedText .. character
+        if valueType == ("float" or "ufloat") then
+            if character == "." then
+                cleanedText = cleanedText .. character
+            end
         end
 
-        if character == "." then
-            cleanedText = cleanedText .. character
+        if valueType == ("float" or "int") then
+            if character == "-" then
+                cleanedText = cleanedText .. character
+            end
         end
     end
 
@@ -112,22 +119,23 @@ function ChangeValue(text : string, valueToChange : number) : ()
 end
 
 UI.RegenerateButton.Activated:Connect(RegeneratePath)
+UI.SHowLabelsButton.Activated:Connect(ShowLabelsSwitch)
+
 UI.StartPosition:GetPropertyChangedSignal("Text"):Connect(function()
-    ChangeValue(UI.StartPosition.Text, 0)
+    ChangeValue(UI.StartPosition.Text, 0, "float")
 end)
 UI.EndPosition:GetPropertyChangedSignal("Text"):Connect(function()
-    ChangeValue(UI.EndPosition.Text, 1)
+    ChangeValue(UI.EndPosition.Text, 1, "float")
 end)
 
 UI.UpdateLogLevel:GetPropertyChangedSignal("Text"):Connect(function()
-    ChangeValue(UI.UpdateLogLevel.Text, 2)
+    ChangeValue(UI.UpdateLogLevel.Text, 2, "int")
 end)
 
 UI.UpdateDelay:GetPropertyChangedSignal("Text"):Connect(function()
-    ChangeValue(UI.UpdateDelay.Text, 3)
+    ChangeValue(UI.UpdateDelay.Text, 3, "uint")
 end)
 
 UI.UpdateWalkspeed:GetPropertyChangedSignal("Text"):Connect(function()
-    ChangeValue(UI.UpdateWalkspeed.Text, 4)
+    ChangeValue(UI.UpdateWalkspeed.Text, 4, "ufloat")
 end)
-UI.SHowLabelsButton.Activated:Connect(ShowLabelsSwitch)

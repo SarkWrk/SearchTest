@@ -32,13 +32,18 @@ local node_creation_times_configuration = {
 A table containing config settings for path creation
 ]]
 local path_configurations = {}
-path_configurations.path_stud_size = 1
+path_configurations.path_node_size = 1
 path_configurations.success_within_stud_range = 0.5
 path_configurations.validation_size_adjustment = 1-9*math.pow(10, -5)
+path_configurations.create_node_labels = replicated_storage_objects.ShowLabels.Value
 
 path_configurations.agents = {}
 path_configurations.agents.max_jump_height = 7 -- in studs
 path_configurations.agents.max_jump_distance = 11 -- in studs
+
+replicated_storage_objects.ShowLabels.Changed:Connect(function(value : boolean)
+    path_configurations.create_node_labels = value
+end)
 
 --Stores the path that gets created
 local pathFolder = Instance.new("Folder")
@@ -109,16 +114,11 @@ archetypes.surfaceArchetype.MaxDistance = 10
 -- Archetype for nodes
 archetypes.nodeArchetype = Instance.new("Part")
 archetypes.nodeArchetype.Color = Color3.new(0.745098, 0.874510, 0.168627)
-archetypes.nodeArchetype.Size = Vector3.new(path_configurations.path_stud_size, path_configurations.path_stud_size, path_configurations.path_stud_size)
+archetypes.nodeArchetype.Size = Vector3.new(path_configurations.path_node_size, path_configurations.path_node_size, path_configurations.path_node_size)
 archetypes.nodeArchetype.Anchored = true
 archetypes.nodeArchetype.CanCollide = false
 archetypes.nodeArchetype.Transparency = 0.25
 archetypes.nodeArchetype.Material = Enum.Material.Glass
-
-
-replicated_storage_objects.ShowLabels.Changed:Connect(function(value : boolean)
-    archetypes.surfaceArchetype.Enabled = value
-end)
 
 
 --[[
@@ -159,28 +159,34 @@ function CreatePathPart(nodeNumber : number, location : Vector3, importantPositi
     node.Position = location
     node.Name = nodeNumber
 
-    local distanceDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
-    distanceDisplay.Face = "Top"
+    if path_configurations.create_node_labels == true then
+        local distanceDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
+        distanceDisplay.Face = "Top"
 
-    local distanceIndicator = Instance.fromExisting(archetypes.distplayArchetype)
-    distanceIndicator.Text = distance
-    distanceIndicator.Parent = distanceDisplay
+        local distanceIndicator = Instance.fromExisting(archetypes.distplayArchetype)
+        distanceIndicator.Text = distance
+        distanceIndicator.Parent = distanceDisplay
 
-    local airTimeDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
-    airTimeDisplay.Face = "Front"
+        local airTimeDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
+        airTimeDisplay.Face = "Front"
 
-    local airTimeIndicator = Instance.fromExisting(archetypes.distplayArchetype)
-    airTimeIndicator.Text = airTime
-    airTimeIndicator.Parent = airTimeDisplay
+        local airTimeIndicator = Instance.fromExisting(archetypes.distplayArchetype)
+        airTimeIndicator.Text = airTime
+        airTimeIndicator.Parent = airTimeDisplay
 
-    distanceDisplay.Parent = node
-    airTimeDisplay.Parent = node
+        distanceDisplay.Parent = node
+        airTimeDisplay.Parent = node
+    end
 
     node:SetAttribute("Distance", distance)
     node:SetAttribute("Air_Time", airTime)
 
     if airTime == 0 then
         node:SetAttribute("On_Ground", true)
+
+        -- Make nodes that are on the ground distinct
+        node.Color = Color3.new(0.086275, 0.839216, 0.274510)
+        node.Material = Enum.Material.Neon
     else
         node:SetAttribute("On_Ground", false)
         node:SetAttribute("Jump_Location", jumpedFromLocation)
@@ -217,7 +223,7 @@ function ValidateLocation(position : Vector3, isInPartParams: OverlapParams, che
 
     table.insert(checked_locations, position)
 
-    local is_position_in_part_check = workspace:GetPartBoundsInBox(CFrame.new(position), path_configurations.validation_size_adjustment*Vector3.new(path_configurations.path_stud_size, path_configurations.path_stud_size, path_configurations.path_stud_size), isInPartParams)
+    local is_position_in_part_check = workspace:GetPartBoundsInBox(CFrame.new(position), path_configurations.validation_size_adjustment*archetypes.nodeArchetype.Size, isInPartParams)
 
     if table.maxn(is_position_in_part_check) > 0 then
         if log_level >= 3 then
@@ -237,10 +243,19 @@ end
 --[[
 Checks whether a point exceeds the limits of the path configurations
 ]]
-function CheckPathLimits(position : Vector3, part_origin : Part, raycastParams : RaycastParams) : (boolean, number)
+function CheckPathLimits(position : Vector3, part_origin : Part, overlapParams : OverlapParams) : (boolean, number)
     local air_time = tonumber(part_origin:GetAttribute("Air_Time")) :: number?
     local jumped_from_location = part_origin:GetAttribute("Jump_Locaiton") :: Vector3?
-    local is_going_down = false
+
+    local function CheckIfOnGround() : boolean
+        local parts = workspace:GetPartBoundsInBox(CFrame.new(position + Vector3.new(0, -path_configurations.path_node_size, 0)), path_configurations.validation_size_adjustment*archetypes.nodeArchetype.Size, overlapParams)
+
+        if table.maxn(parts) == 0 then
+            return false
+        end
+
+        return true
+    end
     
     -- Air time check
     -- Check whether the previous point was on the ground
@@ -250,28 +265,25 @@ function CheckPathLimits(position : Vector3, part_origin : Part, raycastParams :
             air_time += 1
         elseif position.Y < part_origin.Position.Y then
             air_time += 1
+        -- Please verify that it's actually on the ground because it can be considered "On_Ground" even when it's not!?!?!?!?!?!?
+        elseif not CheckIfOnGround() then
+            air_time += 1
         end
     else
         -- Otherwise, check if the new position will place the path back on the ground
         -- If it will then set the air time back to 0
-        if workspace:Raycast(position, position + Vector3.new(0, -path_configurations.path_stud_size*1.5, 0), raycastParams) then
+        if CheckIfOnGround() then
             air_time = 0
         -- Otherwise, increase the air time and check if the position is below the previous point
         else
             air_time += 1
-
-            if position.Y < part_origin.Position.Y then
-                is_going_down = true
-            end
         end
     end
 
     -- If the new position is going up and is going higher than the agent can reasonably go, don't let the algrithm create a point there
-    if is_going_down == false and air_time > path_configurations.agents.max_jump_height then
-        if jumped_from_location then
-            if position.Y-jumped_from_location.Y > path_configurations.agents.max_jump_height then
-                return false, air_time
-            end
+    if jumped_from_location then
+        if position.Y-jumped_from_location.Y > path_configurations.agents.max_jump_height then
+            return false, air_time
         end
     end
 
@@ -295,56 +307,56 @@ If canJump is falase, then then the upper portion of the cube will not be return
 function NextPositions(originPosition : Vector3, canJump : boolean) : {Vector3}
     if canJump == true then
         local newPositionsTable = {
-            originPosition + Vector3.new(path_configurations.path_stud_size, 0, 0),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, 0, 0),
-            originPosition + Vector3.new(0, path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, -path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, 0, path_configurations.path_stud_size),
-            originPosition + Vector3.new(0, 0, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, -path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(0, -path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, 0, path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, 0, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, -path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(0, -path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, -path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, -path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, 0, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, 0, path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, -path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, -path_configurations.path_stud_size, path_configurations.path_stud_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, 0, 0),
+            originPosition + Vector3.new(-path_configurations.path_node_size, 0, 0),
+            originPosition + Vector3.new(0, path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, -path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, 0, path_configurations.path_node_size),
+            originPosition + Vector3.new(0, 0, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(-path_configurations.path_node_size, -path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(0, -path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, 0, path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, 0, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, -path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(-path_configurations.path_node_size, path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(0, -path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, -path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, -path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, 0, -path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, 0, path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, -path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, -path_configurations.path_node_size, path_configurations.path_node_size),
         }
     
         return newPositionsTable
     else
         local newPositionsTable = {
-            originPosition + Vector3.new(path_configurations.path_stud_size, 0, 0),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, 0, 0),
-            originPosition + Vector3.new(0, -path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, 0, path_configurations.path_stud_size),
-            originPosition + Vector3.new(0, 0, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, -path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, -path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, 0, path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, 0, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, -path_configurations.path_stud_size, 0),
-            originPosition + Vector3.new(0, -path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, -path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, -path_configurations.path_stud_size, path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, 0, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, 0, path_configurations.path_stud_size),
-            originPosition + Vector3.new(path_configurations.path_stud_size, -path_configurations.path_stud_size, -path_configurations.path_stud_size),
-            originPosition + Vector3.new(-path_configurations.path_stud_size, -path_configurations.path_stud_size, path_configurations.path_stud_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, 0, 0),
+            originPosition + Vector3.new(-path_configurations.path_node_size, 0, 0),
+            originPosition + Vector3.new(0, -path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, 0, path_configurations.path_node_size),
+            originPosition + Vector3.new(0, 0, -path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, -path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, -path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, 0, path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, 0, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, -path_configurations.path_node_size, 0),
+            originPosition + Vector3.new(0, -path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, -path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, -path_configurations.path_node_size, path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, 0, -path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, 0, path_configurations.path_node_size),
+            originPosition + Vector3.new(path_configurations.path_node_size, -path_configurations.path_node_size, -path_configurations.path_node_size),
+            originPosition + Vector3.new(-path_configurations.path_node_size, -path_configurations.path_node_size, path_configurations.path_node_size),
         }
 
         return newPositionsTable
@@ -352,8 +364,8 @@ function NextPositions(originPosition : Vector3, canJump : boolean) : {Vector3}
 end
 
 function Algrithm(startPosition: Vector3, endPosition: Vector3)
-    local reached_destination: boolean = false
-    local start_time: number = tick()
+    local reached_destination : boolean = false
+    local start_time : number = tick()
     local checked_locations : {Vector3} = {startPosition, endPosition}
     local next_parts_to_check : {Part} = {}
     local part_index = {} :: {{Position : Vector3, DistanceFromStart : number, Part : Part}}
@@ -365,10 +377,12 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
     local isInPartParams = OverlapParams.new()
     isInPartParams.RespectCanCollide = true
     isInPartParams.FilterDescendantsInstances = {startPositionIndicator, endPositionIndicator}
+    isInPartParams.FilterType = Enum.RaycastFilterType.Exclude
 
-    local landedCheckParams = RaycastParams.new()
+    local landedCheckParams = OverlapParams.new()
     landedCheckParams.RespectCanCollide = true
     landedCheckParams.FilterDescendantsInstances = {startPositionIndicator, endPositionIndicator}
+    landedCheckParams.FilterType = Enum.RaycastFilterType.Exclude
 
     for _, player in pairs(game:GetService("Players"):GetPlayers()) do
         isInPartParams:AddToFilter(player.Character)
@@ -377,7 +391,7 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
 
     local node_number = 0
 
-    CreatePathPart(node_number, startPosition, {start_position = startPosition, end_position = endPosition}, {["inPartCheck"] = isInPartParams, ["landedChek"] = landedCheckParams}, next_parts_to_check, part_index, startPosition, 1)
+    CreatePathPart(node_number, startPosition, {start_position = startPosition, end_position = endPosition}, {["inPartCheck"] = isInPartParams, ["landedChek"] = landedCheckParams}, next_parts_to_check, part_index, startPosition)
 
     while reached_destination == false do
         -- Sort the table so that the closest parts are chosen first
@@ -459,8 +473,12 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
         end
 
         for i, node : Part in pairs(pathFolder:GetChildren()) do
-            node.Color = Color3.new(0.172549, 0.180392, 0.600000)
             node.Transparency = 0.5
+            if node:GetAttribute("On_Ground") == true then
+                node.Color = Color3.new(1, 0, 0)
+            else
+                node.Color = Color3.new(0.172549, 0.180392, 0.600000)
+            end
 
             if i % (tick_delay*6) == 0 then
                 task.wait()
