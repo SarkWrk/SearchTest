@@ -17,7 +17,7 @@ end
 
 function ShowLabelsSwitch(value : boolean) : ()
     if log_level >= 1 then
-        print("Changling show labels to " .. tostring(not game:GetService("ReplicatedStorage").Shared.ShowLabels.Value))
+        print("Changing show labels to " .. tostring(not game:GetService("ReplicatedStorage").Shared.ShowLabels.Value))
     end
     game:GetService("ReplicatedStorage").Shared.ShowLabels.Value = not game:GetService("ReplicatedStorage").Shared.ShowLabels.Value
 end

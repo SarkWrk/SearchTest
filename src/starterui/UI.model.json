@@ -30,6 +30,8 @@
                 "TextScaled" : true
             }
         },
+
+
         {
             "Name" : "EndPosition",
             "ClassName" : "TextBox",
@@ -109,6 +111,102 @@
                 "TextColor3" : {"Color3" : [0, 0, 0]},
                 "TextSize" : 12
             }
+        },
+
+
+        {
+            "Name" : "NodesChecked",
+            "ClassName" : "TextLabel",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 150], [0, 45]]},
+                "Position" : {"UDim2" : [[1, -150], [1, -90]]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.5,
+                "TextScaled" : true,
+                "Text" : "Nodes checked: 0"
+            },
+
+
+            "Children" : [
+                {
+                    "Name" : "SizeConstraint",
+                    "ClassName" : "UITextSizeConstraint",
+                    "Properties" : {
+                        "MaxTextSize" : 20,
+                        "MinTextSize" : 5
+                    }
+                }
+            ]
+        },
+
+
+        {
+            "Name" : "NodeCreationDisplay",
+            "ClassName" : "Frame",
+            "Properties" : {
+                "Size" : {"UDim2" : [[0, 300], [0, 45]]},
+                "Position" : {"UDim2" : [[1, -300], [1, -45]]},
+                "BackgroundColor3" : {"Color3" : [1, 1, 1]},
+                "BorderSizePixel" : 0,
+                "BackgroundTransparency" : 0.7,
+                "ClipsDescendants" : true
+            },
+
+            "Children" : [
+                {
+                    "Name" : "ProgressBar",
+                    "ClassName" : "Frame",
+                    "Properties" : {
+                        "Size" : {"UDim2" : [[1, 0], [1, 0]]},
+                        "Position" : {"UDim2" : [[0, 0], [0, 0]]},
+                        "BackgroundColor3" : {"Color3" : [1, 0, 0]},
+                        "BorderSizePixel" : 0,
+                        "BackgroundTransparency" : 0.5,
+                        "ClipsDescendants" : true
+                    },
+
+                    "Children" : [
+                        {
+                            "Name" : "Bar",
+                            "ClassName" : "Frame",
+                            "Properties" : {
+                                "Size" : {"UDim2" : [[1, 0], [1, 0]]},
+                                "Position" : {"UDim2" : [[-1, 0], [0, 0]]},
+                                "BackgroundTransparency" : 0.35,
+                                "BackgroundColor3" : {"Color3" : [0, 1, 0]},
+                                "BorderSizePixel" : 0
+                            }
+                        }
+                    ]
+                },
+                {
+                    "Name" : "ProgressInformation",
+                    "ClassName" : "TextLabel",
+                    "Properties" : {
+                        "Size" : {"UDim2" : [[1, 0], [1, 0]]},
+                        "Position" : {"UDim2" : [[0, 0], [0, 0]]},
+                        "BorderSizePixel" : 0,
+                        "BackgroundTransparency" : 1,
+                        "TextScaled" : true,
+                        "Text" : "Node creation progress:\n0/0 (100%)",
+                        "TextColor3" : {"Color3" : [1, 1, 1]},
+                        "TextStrokeColor3" : {"Color3" : [0, 0, 0]},
+                        "TextStrokeTransparency" : 0.5
+                    },
+
+
+                    "Children" : [
+                        {
+                            "Name" : "SizeConstraint",
+                            "ClassName" : "UITextSizeConstraint",
+                            "Properties" : {
+                                "MaxTextSize" : 20,
+                                "MinTextSize" : 5
+                            }
+                        }
+                    ]
+                }
+            ]
         }
     ]
 }

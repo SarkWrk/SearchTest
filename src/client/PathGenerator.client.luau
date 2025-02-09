@@ -1,6 +1,7 @@
 -- Services / Service-adjacents
 local replicated_storage_objects = game:GetService("ReplicatedStorage").Shared
 local debrisService = game:GetService("Debris")
+local runService = game:GetService("RunService")
 
 -- Other stuff
 local log_level = replicated_storage_objects.LogLevel.Value
@@ -20,29 +21,36 @@ replicated_storage_objects.TickDelay.Changed:Connect(function(value)
 end)
 
 --[[
-Table used to log the average time it takes for a node to be checked and created.
-Used when log_level >= 2
-]]
-local node_creation_times : {{node_number : number, time : number}} = {}
-local node_creation_times_configuration = {
-    grouped_average_chunk_size = 10
-}
-
---[[
 A table containing config settings for path creation
 ]]
 local path_configurations = {}
-path_configurations.path_node_size = 1
-path_configurations.success_within_stud_range = 0.5
+path_configurations.path_node_size = 1 -- in studs
+path_configurations.success_within_stud_range = 0.5 -- in studs
 path_configurations.validation_size_adjustment = 1-9*math.pow(10, -5)
 path_configurations.create_node_labels = replicated_storage_objects.ShowLabels.Value
+path_configurations.key_node_rate = 500
 
 path_configurations.agents = {}
-path_configurations.agents.max_jump_height = 7 -- in studs
+path_configurations.agents.max_jump_height = 6 -- in studs
 path_configurations.agents.max_jump_distance = 11 -- in studs
 
 replicated_storage_objects.ShowLabels.Changed:Connect(function(value : boolean)
     path_configurations.create_node_labels = value
+end)
+
+--[[
+A table containin config settings for visualisation settings
+]]
+local visualisation_configurations = {}
+visualisation_configurations.progressGUIPath = nil
+visualisation_configurations.nodesCheckedGUIPath = nil
+visualisation_configurations.refresh_delay = 0.01 -- in seconds
+visualisation_configurations.node_creation_text = "Node creation progress:"
+visualisation_configurations.nodes_checked_text = "Nodes checked:"
+
+game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
+    visualisation_configurations.progressGUIPath = game:GetService("Players").LocalPlayer.PlayerGui.UI.NodeCreationDisplay
+    visualisation_configurations.nodesCheckedGUIPath = game:GetService("Players").LocalPlayer.PlayerGui.UI.NodesChecked
 end)
 
 --Stores the path that gets created
@@ -113,104 +121,213 @@ archetypes.surfaceArchetype.MaxDistance = 10
 
 -- Archetype for nodes
 archetypes.nodeArchetype = Instance.new("Part")
-archetypes.nodeArchetype.Color = Color3.new(0.745098, 0.874510, 0.168627)
+archetypes.nodeArchetype.Color = Color3.new(0.172549, 0.180392, 0.600000)
 archetypes.nodeArchetype.Size = Vector3.new(path_configurations.path_node_size, path_configurations.path_node_size, path_configurations.path_node_size)
 archetypes.nodeArchetype.Anchored = true
 archetypes.nodeArchetype.CanCollide = false
-archetypes.nodeArchetype.Transparency = 0.25
+archetypes.nodeArchetype.Transparency = 0.5
 archetypes.nodeArchetype.Material = Enum.Material.Glass
 
-
---[[
-Sorts the part_index dictionary
-N.B. The parts that are closest to the start location will be put last
-]]
-function SortByFurthest(value_one : {Position : Vector3, DistanceFromStart : number, Part : Part}, value_two : {Position : Vector3, DistanceFromStart : number, Part : Part})
-    if value_one.DistanceFromStart > value_two.DistanceFromStart then
-        return true
-    end
-
-    return false
-end
-
-function PathCalculation(startPosition, endPosition, partIndex)
-    local start_time = tick()
-
-    table.sort(partIndex, SortByFurthest)
-
-    if log_level >= 1 then
-        print("Finished generating path in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
-    end
-    
-    path_generating = false
-end
+-- Types, for simplicity
+type node_information ={
+    node_number : number,
+    properties : {
+        position : Vector3,
+        color : Color3,
+        material : Enum.Material | string,
+    },
+    attributes : {
+        air_time : number,
+        distance : number,
+        on_ground : boolean,
+        key_node : boolean,
+        jump_location : Vector3?,
+    }
+}
 
 --[[
 Creates a part (and labels for the part) at a location on the path
 ]]
-function CreatePathPart(nodeNumber : number, location : Vector3, importantPositions : {start_position : Vector3, end_position : Vector3}, filters : {["inPartCheck"] : OverlapParams, ["landedChek"] : RaycastParams}, nextSearchPoints : {Part}, indexOfParts : {{Position : Vector3, DistanceFromStart : number, Part : Part}}, jumpedFromLocation : Vector3, airTime : number?)    
-    local distance = math.floor((location - importantPositions.start_position).Magnitude)
-
-    if airTime == nil then
-        airTime = 0
-    end
-
+function CreatePathPart(node_information : node_information) : Part
     local node = Instance.fromExisting(archetypes.nodeArchetype)
-    node.Position = location
-    node.Name = nodeNumber
+    node.Position = node_information.properties.position
+    node.Name = node_information.node_number
 
     if path_configurations.create_node_labels == true then
         local distanceDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
         distanceDisplay.Face = "Top"
 
         local distanceIndicator = Instance.fromExisting(archetypes.distplayArchetype)
-        distanceIndicator.Text = distance
+        distanceIndicator.Text = node_information.attributes.distance
         distanceIndicator.Parent = distanceDisplay
 
         local airTimeDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
         airTimeDisplay.Face = "Front"
 
         local airTimeIndicator = Instance.fromExisting(archetypes.distplayArchetype)
-        airTimeIndicator.Text = airTime
+        airTimeIndicator.Text = node_information.attributes.air_time
         airTimeIndicator.Parent = airTimeDisplay
 
         distanceDisplay.Parent = node
         airTimeDisplay.Parent = node
     end
 
-    node:SetAttribute("Distance", distance)
-    node:SetAttribute("Air_Time", airTime)
-
-    if airTime == 0 then
-        node:SetAttribute("On_Ground", true)
-
-        -- Make nodes that are on the ground distinct
-        node.Color = Color3.new(0.086275, 0.839216, 0.274510)
-        node.Material = Enum.Material.Neon
-    else
-        node:SetAttribute("On_Ground", false)
-        node:SetAttribute("Jump_Location", jumpedFromLocation)
+    for attribute_name, attribute_value in pairs(node_information.attributes) do
+        if attribute_name == "distance" then
+            node:SetAttribute(tostring(attribute_name), math.floor(attribute_value))
+        else
+            node:SetAttribute(tostring(attribute_name), attribute_value)
+        end
     end
 
-    
-    for _, param in pairs(filters) do
-        param:AddToFilter(node)
-    end
-
-    table.insert(nextSearchPoints, node)
-
-    local index_value = {}
-    index_value.Position = location
-    index_value.DistanceFromStart = distance
-    index_value.Part = node
-
-    table.insert(indexOfParts, index_value)
-
+    node.Material = node_information.properties.material
+    node.Color = node_information.properties.color
     node.Parent = pathFolder
 
     if log_level >= 4 then
         print("Created indicator #" .. node.Name .. "\nDistance: " .. node:GetAttribute("Distance") .. " / Air time: " .. node:GetAttribute("Air_Time"))
     end
+
+    return node
+end
+
+--[[
+Node visualiser
+]]
+function NodeVisualiser(nodes : {node_information})
+    local start_time = tick()
+    local refresh_delay = tick()
+
+    for i, node in pairs(nodes) do
+        local thread = coroutine.create(CreatePathPart)
+        
+        coroutine.resume(thread, node)
+
+        if i % (tick_delay*4) == 0 then
+            runService.Heartbeat:Wait()
+        end
+
+        if (tick()-refresh_delay >= visualisation_configurations.refresh_delay) or (i == table.maxn(nodes))then
+            refresh_delay = tick()
+            local progress = i/table.maxn(nodes)
+            visualisation_configurations.progressGUIPath.ProgressInformation.Text = visualisation_configurations.node_creation_text .. "\n" .. i .. "/" .. table.maxn(nodes) .. " (" .. math.floor(progress * 100) .. "%)"
+            visualisation_configurations.progressGUIPath.ProgressBar.Bar.Position = UDim2.new(progress - 1, 0, 0, 0)
+        end
+    end
+
+    if log_level >= 1 then
+        print("Finished creating nodes in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
+    end
+end
+
+--[[
+Sorts the part_index dictionary
+N.B. The parts that are closest to the start location will be put last
+]]
+function SortByFurthest(tableOfNodes : {node_information}) : {node_information}
+    table.sort(tableOfNodes, function(node_one : node_information, node_two : node_information)
+        if node_one.attributes.distance > node_two.attributes.distance then
+            return true
+        end
+    
+        return false
+    end)
+
+    return tableOfNodes
+end
+
+--[[
+Figures out which nodes to consider and which nodes not to consider
+]]
+function GetImportantKeyNodes(keyNodes : {node_information}) : {node_information}
+    local key_nodes_reversed = {}
+
+    local index = 0
+    for i = table.maxn(keyNodes), 1, -1 do
+        index += 1
+        key_nodes_reversed[index] = keyNodes[i]
+    end
+
+    local organised_key_nodes = {}
+
+    local ignored_values = {
+        [1] = true,
+        [table.maxn(key_nodes_reversed)] = true,
+        [table.maxn(key_nodes_reversed) - 1] = true,
+        [table.maxn(key_nodes_reversed) - 2] = true,
+    }
+
+    -- Figure out which key nodes to remove
+    for i, v in pairs(key_nodes_reversed) do
+        if ignored_values[i] then
+            table.insert(organised_key_nodes, v)
+
+            continue
+        end
+
+        local distanceConsidering : node_information = key_nodes_reversed[i]
+        local distancePotentialSkipTo : node_information = key_nodes_reversed[i + 1]
+        local decider : node_information = key_nodes_reversed[i + 2]
+
+        local considering_points = 0
+        local potential_points = 0
+
+        if distanceConsidering.attributes.distance < distancePotentialSkipTo.attributes.distance then
+            considering_points += 1
+        else
+            potential_points += 1
+        end
+
+        local decider_closer = decider.attributes.distance < distancePotentialSkipTo.attributes.distance and true or false
+
+        if math.abs(distanceConsidering.attributes.distance-decider.attributes.distance) < math.abs(distancePotentialSkipTo.attributes.distance-decider.attributes.distance) then
+            if decider_closer == true then
+                considering_points += 1
+            else
+                potential_points += 1
+            end
+        else
+            if decider_closer == true then
+                potential_points += 1
+            else
+                considering_points += 1
+            end
+        end
+
+        if considering_points > potential_points then
+            table.insert(organised_key_nodes, v)
+        end
+    end
+
+    return organised_key_nodes
+end
+
+--[[
+Figures out how to direct the path from all the nodes that have been created
+]]
+function PathCalculation(startPosition : Vector3, endPosition : Vector3, nodeIndex : {node_information}, keyNodes : {node_information})
+    local start_time = tick()
+    
+    -- Prepare some tables and work in reverse order to figure out how to build the path
+    local nodes_sorted = SortByFurthest(nodeIndex)
+    local key_nodes_sorted = GetImportantKeyNodes(keyNodes)
+
+    if path_interrupt == true then
+        path_generating = false
+        return
+    end
+
+    for _, node in pairs(key_nodes_sorted) do
+        node.Color = Color3.new(0.937255, 1.000000, 0.086275)
+    end
+
+    local path = {}    
+
+    if log_level >= 1 then
+        print("Finished generating path in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
+    end
+    
+    path_generating = false
 end
 
 --[[
@@ -243,9 +360,9 @@ end
 --[[
 Checks whether a point exceeds the limits of the path configurations
 ]]
-function CheckPathLimits(position : Vector3, part_origin : Part, overlapParams : OverlapParams) : (boolean, number)
-    local air_time = tonumber(part_origin:GetAttribute("Air_Time")) :: number?
-    local jumped_from_location = part_origin:GetAttribute("Jump_Locaiton") :: Vector3?
+function CheckPathLimits(position : Vector3, part_origin : node_information, overlapParams : OverlapParams) : (boolean, number)
+    local air_time = tonumber(part_origin.attributes.air_time) :: number?
+    local jumped_from_location = part_origin.attributes.jump_location :: Vector3?
 
     local function CheckIfOnGround() : boolean
         local parts = workspace:GetPartBoundsInBox(CFrame.new(position + Vector3.new(0, -path_configurations.path_node_size, 0)), path_configurations.validation_size_adjustment*archetypes.nodeArchetype.Size, overlapParams)
@@ -259,11 +376,11 @@ function CheckPathLimits(position : Vector3, part_origin : Part, overlapParams :
     
     -- Air time check
     -- Check whether the previous point was on the ground
-    if part_origin:GetAttribute("On_Ground") == true then
+    if part_origin.attributes.on_ground == true then
         -- If it is then if the next position is not on the same plane, then the air time increases
-        if position.Y > part_origin.Position.Y then
+        if position.Y > part_origin.properties.position.Y then
             air_time += 1
-        elseif position.Y < part_origin.Position.Y then
+        elseif position.Y < part_origin.properties.position.Y then
             air_time += 1
         -- Please verify that it's actually on the ground because it can be considered "On_Ground" even when it's not!?!?!?!?!?!?
         elseif not CheckIfOnGround() then
@@ -299,6 +416,14 @@ function CheckPathLimits(position : Vector3, part_origin : Part, overlapParams :
 
     return true, air_time
 end
+
+--[[
+Checks requirements and sets the information for a node
+]]
+function NodeCreation()
+    
+end
+
 
 --[[
 Returns every vector from a 3x3x3 cube sat on a position ignoring the centre
@@ -366,9 +491,12 @@ end
 function Algrithm(startPosition: Vector3, endPosition: Vector3)
     local reached_destination : boolean = false
     local start_time : number = tick()
+    local refresh_delay = tick()
+
     local checked_locations : {Vector3} = {startPosition, endPosition}
-    local next_parts_to_check : {Part} = {}
-    local part_index = {} :: {{Position : Vector3, DistanceFromStart : number, Part : Part}}
+    local next_nodes_to_check : {node_information}  = {}
+    local node_index : {node_information} = {}
+    local key_nodes : {node_information} = {}
 
     -- Tell the script that the path is being generated (in-case manual interrupt)
     path_generating = true
@@ -391,14 +519,16 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
 
     local node_number = 0
 
-    CreatePathPart(node_number, startPosition, {start_position = startPosition, end_position = endPosition}, {["inPartCheck"] = isInPartParams, ["landedChek"] = landedCheckParams}, next_parts_to_check, part_index, startPosition)
+    table.insert(node_index, {node_number = node_number, properties = {position = startPosition, color = Color3.new(1.000000, 0.086275, 0.952941), material = Enum.Material.Neon}, attributes = {air_time = 0, distance = 0, on_ground = false, key_node = true}})
+    table.insert(next_nodes_to_check, node_index[1])
+    table.insert(key_nodes, node_index[1])
 
+    task.desynchronize()
     while reached_destination == false do
         -- Sort the table so that the closest parts are chosen first
         if (node_number % 5 == 0) or (node_number <= 500) then
-            game:GetService("RunService").Heartbeat:Wait()
-            table.sort(next_parts_to_check, function(part_one : Part, part_two : Part)
-                if (part_one.Position-endPosition).Magnitude < (part_two.Position-endPosition).Magnitude then
+            table.sort(next_nodes_to_check, function(node_one : node_information, node_two : node_information)
+                if (node_one.properties.position-endPosition).Magnitude < (node_two.properties.position-endPosition).Magnitude then
                     return true
                 end
 
@@ -406,11 +536,11 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
             end)
         end
 
-        local next_part = next_parts_to_check[1]
+        local next_node : node_information = next_nodes_to_check[1]
 
         local can_jump = false
 
-        if next_part == nil then
+        if next_node == nil then
             break
         end
 
@@ -418,17 +548,38 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
             break
         end
 
-        if next_part:GetAttribute("On_Ground") == true then
+        if tick()-refresh_delay >= visualisation_configurations.refresh_delay then
+            refresh_delay = tick()
+
+            task.synchronize()
+            visualisation_configurations.nodesCheckedGUIPath.Text = visualisation_configurations.nodes_checked_text .. "\n" .. table.maxn(checked_locations)
+            task.desynchronize()
+        end
+
+        if next_node.attributes.on_ground == true then
             can_jump = true
         else
-            if next_part:GetAttribute("Air_Time") <= 5 then
+            if next_node.attributes.air_time <= (math.floor(path_configurations.agents.max_jump_height/path_configurations.path_node_size)-1) then
                 can_jump = true
             end
         end
 
-        for _, position : Vector3 in pairs(NextPositions(next_part.Position, can_jump)) do
-            -- Logging purposes
-            local node_start_time = tick()
+        for _, position : Vector3 in pairs(NextPositions(next_node.properties.position, can_jump)) do
+            local new_node : node_information = {
+                node_number = node_number + 1,
+                properties = {
+                    position = position,
+                    color = archetypes.nodeArchetype.Color,
+                    material = archetypes.nodeArchetype.Material
+                },
+                attributes = {
+                    air_time = 0,
+                    distance = (position-startPosition).Magnitude,
+                    on_ground = false,
+                    key_node = false,
+                    jump_location = nil
+                }
+            }
 
             -- Check if the position is close enough to the end goal for it to count as reaching it
             if (position-endPosition).Magnitude <= path_configurations.success_within_stud_range then
@@ -436,64 +587,79 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
                 break
             end
 
-            debug.profilebegin("ValidateLocation")
             local viableLocation = ValidateLocation(position, isInPartParams, checked_locations)
-            debug.profileend()
 
             if viableLocation == false then
                 continue
             end
 
-            debug.profilebegin("CheckPathLimits")
-            local success, air_time = CheckPathLimits(position, next_part, landedCheckParams)
-            debug.profileend()
+            local success, air_time = CheckPathLimits(position, next_node, landedCheckParams)
 
             if success == false then
                 continue
             end
 
+            new_node.attributes.air_time = air_time
+            
+            if air_time > 0 then
+                new_node.attributes.on_ground = false
+
+                if new_node.attributes.jump_location == nil then
+                    new_node.attributes.jump_location = next_node.properties.position
+                else
+                    new_node.attributes.jump_location = next_node.attributes.jump_location
+                end
+            else
+                new_node.properties.color = Color3.new(1, 0, 0)
+                new_node.properties.material = Enum.Material.Neon
+            end
+
             node_number += 1
 
-            debug.profilebegin("CreatePathPart")
-            CreatePathPart(node_number, position, {start_position = startPosition, end_position = endPosition}, {["inPartCheck"] = isInPartParams, ["landedChek"] = landedCheckParams}, next_parts_to_check, part_index, next_part.Position, air_time)
-            debug.profileend()
+            if node_number % path_configurations.key_node_rate == 0 then
+                new_node.attributes.key_node = true
+                new_node.properties.color = Color3.new(1.000000, 0.086275, 0.952941)
+                new_node.properties.material = Enum.Material.Neon
 
-            table.insert(node_creation_times, {["node_number"] = node_number, ["time"] = tick()-node_start_time})
+                table.insert(key_nodes, new_node)
+            end
+
+            table.insert(next_nodes_to_check, new_node)
+            table.insert(node_index, new_node)
         end
-        table.remove(next_parts_to_check, 1)
 
-        if node_number % tick_delay == 0 then
-            game:GetService("RunService").Heartbeat:Wait()
+        table.remove(next_nodes_to_check, 1)
+
+        if node_number % (tick_delay) == 0 then
+            task.synchronize()
+            runService.Heartbeat:Wait()
+            task.desynchronize()
         end
     end
+    task.synchronize()
 
-    if reached_destination == true then
-        if log_level >= 1 then
-            print("Reached end point in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
-        end
+    table.insert(key_nodes, node_index[node_number])
 
-        for i, node : Part in pairs(pathFolder:GetChildren()) do
-            node.Transparency = 0.5
-            if node:GetAttribute("On_Ground") == true then
-                node.Color = Color3.new(1, 0, 0)
-            else
-                node.Color = Color3.new(0.172549, 0.180392, 0.600000)
-            end
+    if log_level >= 1 then
+        print("Reached end point in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
+    end
 
-            if i % (tick_delay*6) == 0 then
-                task.wait()
-            end
-        end
+    NodeVisualiser(node_index)
 
-        PathCalculation(startPosition, endPosition, part_index)
-    else
+    if reached_destination == false then
         if path_interrupt == true then
-            path_interrupt = false
             print("Path generation manually interrupted")
         else
             warn("Ran out of viable parts")
         end
+        
+        path_generating = false
+        path_interrupt = false
+
+        return
     end
+
+    PathCalculation(startPosition, endPosition, node_index, key_nodes)
 end
 
 --[[
@@ -506,8 +672,8 @@ function StartSequence()
 
     for i, node in pairs(pathFolder:GetChildren()) do
         debrisService:AddItem(node, 0)
-        if i % (tick_delay*6) == 0 then
-            task.wait()
+        if i % (tick_delay*100) == 0 then
+            runService.Heartbeat:Wait()
         end
     end
 
@@ -519,7 +685,8 @@ function StartSequence()
         task.wait()
     end
 
-    table.clear(node_creation_times)
+    visualisation_configurations.progressGUIPath.ProgressBar.Bar.Position = UDim2.new(-1, 0, 0,0 )
+    visualisation_configurations.progressGUIPath.ProgressInformation.Text = visualisation_configurations.node_creation_text .. "\n0/0 (100%)"
 
     local start_time = tick()
     local start_position = replicated_storage_objects.StartPosition.Value
@@ -538,31 +705,6 @@ function StartSequence()
 
     if log_level >= 1 then
         print("Finished creating path in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
-    end
-
-    if log_level >= 2 then
-        local total_time = 0
-        for _, subtable in pairs(node_creation_times) do
-            total_time += subtable.time
-        end
-
-        local average = math.round((total_time / table.maxn(node_creation_times))*1000)/1000
-
-        print("Average node creation time: " .. average .. "s" .. "\nActual: " .. total_time/table.maxn(node_creation_times) .. "\nTotal time: " .. total_time)
-    end
-
-    if log_level >= 3 then
-        local grouped_total_time = 0
-
-        for i, subtable in pairs(node_creation_times) do
-            grouped_total_time += subtable.time
-
-            if i % node_creation_times_configuration.grouped_average_chunk_size == 0 then
-                local average = math.round((grouped_total_time / node_creation_times_configuration.grouped_average_chunk_size)*1000)/1000
-        
-                print("Average node creation time between nodes " .. i-node_creation_times_configuration.grouped_average_chunk_size .. "-" .. i .. ": " .. average .. "s")
-            end
-        end
     end
 end
 

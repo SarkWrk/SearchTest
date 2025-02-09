@@ -24,7 +24,7 @@
             "Name" : "TickDelay",
             "ClassName" : "IntValue",
             "Properties" : {
-                "Value" : 25
+                "Value" : 50
             }
         },
         {
