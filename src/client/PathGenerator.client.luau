@@ -42,15 +42,18 @@ end)
 A table containin config settings for visualisation settings
 ]]
 local visualisation_configurations = {}
-visualisation_configurations.progressGUIPath = nil
-visualisation_configurations.nodesCheckedGUIPath = nil
 visualisation_configurations.refresh_delay = 0.01 -- in seconds
+visualisation_configurations.progressGUIPath = nil :: Frame?
+visualisation_configurations.nodesCheckedGUIPath = nil :: TextLabel?
+visualisation_configurations.calculationPhaseGUIPath = nil :: TextLabel?
 visualisation_configurations.node_creation_text = "Node creation progress:"
 visualisation_configurations.nodes_checked_text = "Nodes checked:"
+visualisation_configurations.calculation_phase_text = "Calculation phase:"
 
 game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function()
     visualisation_configurations.progressGUIPath = game:GetService("Players").LocalPlayer.PlayerGui.UI.NodeCreationDisplay
     visualisation_configurations.nodesCheckedGUIPath = game:GetService("Players").LocalPlayer.PlayerGui.UI.NodesChecked
+    visualisation_configurations.calculationPhaseGUIPath = game:GetService("Players").LocalPlayer.PlayerGui.UI.CalculationPhase
 end)
 
 --Stores the path that gets created
@@ -129,7 +132,7 @@ archetypes.nodeArchetype.Transparency = 0.5
 archetypes.nodeArchetype.Material = Enum.Material.Glass
 
 -- Types, for simplicity
-type node_information ={
+type node_information = {
     node_number : number,
     properties : {
         position : Vector3,
@@ -145,6 +148,42 @@ type node_information ={
     }
 }
 
+type waypoint = {
+        position : Vector3,
+        original_node_number : number,
+        jump : boolean,
+    }
+
+function TrialPath(waypoints :  {waypoint})
+    local character = replicated_storage_objects.Parent.rig:Clone()
+    character:PivotTo(CFrame.new(waypoints[1].position + Vector3.new(0, 3, 0)))
+    character.Parent = workspace
+    local humanoid : Humanoid = character.Humanoid
+
+    for _, v : Instance in pairs(character:GetDescendants()) do
+        if v:IsA("Script") then
+            v:Destroy()
+        elseif v:IsA("LocalScript") then
+            v:Destroy()
+        elseif v:IsA("ModuleScript") then
+            v:Destroy()
+        end
+    end
+
+    for i, waypoint : waypoint in pairs(waypoints) do
+        humanoid:MoveTo(waypoint.position)
+        if waypoint.jump == true then
+            humanoid.Jump = true
+        end
+
+        humanoid.MoveToFinished:Wait()
+    end
+
+    task.wait(2)
+
+    character:Destroy()
+end
+
 --[[
 Creates a part (and labels for the part) at a location on the path
 ]]
@@ -158,7 +197,7 @@ function CreatePathPart(node_information : node_information) : Part
         distanceDisplay.Face = "Top"
 
         local distanceIndicator = Instance.fromExisting(archetypes.distplayArchetype)
-        distanceIndicator.Text = node_information.attributes.distance
+        distanceIndicator.Text = math.floor(node_information.attributes.distance)
         distanceIndicator.Parent = distanceDisplay
 
         local airTimeDisplay = Instance.fromExisting(archetypes.surfaceArchetype)
@@ -182,7 +221,6 @@ function CreatePathPart(node_information : node_information) : Part
 
     node.Material = node_information.properties.material
     node.Color = node_information.properties.color
-    node.Parent = pathFolder
 
     if log_level >= 4 then
         print("Created indicator #" .. node.Name .. "\nDistance: " .. node:GetAttribute("Distance") .. " / Air time: " .. node:GetAttribute("Air_Time"))
@@ -197,22 +235,44 @@ Node visualiser
 function NodeVisualiser(nodes : {node_information})
     local start_time = tick()
     local refresh_delay = tick()
+    local created_nodes : {Part} = {}
+    local at_node = 0
+
+    -- Create a connection to update the ui
+    local updateUI = runService.Heartbeat:Connect(function()
+        if (tick()-refresh_delay >= visualisation_configurations.refresh_delay) or (at_node == table.maxn(nodes))then
+            refresh_delay = tick()
+            local progress = at_node/table.maxn(nodes)
+            visualisation_configurations.progressGUIPath.ProgressInformation.Text = visualisation_configurations.node_creation_text .. "\n" .. at_node .. "/" .. table.maxn(nodes) .. " (" .. math.floor(progress * 100) .. "%)"
+            visualisation_configurations.progressGUIPath.ProgressBar.Bar.Position = UDim2.new(progress - 1, 0, 0, 0)
+        end
+    end)
 
     for i, node in pairs(nodes) do
-        local thread = coroutine.create(CreatePathPart)
-        
-        coroutine.resume(thread, node)
+        table.insert(created_nodes, coroutine.wrap(CreatePathPart)(node))
 
         if i % (tick_delay*4) == 0 then
             runService.Heartbeat:Wait()
         end
+        at_node = i
 
-        if (tick()-refresh_delay >= visualisation_configurations.refresh_delay) or (i == table.maxn(nodes))then
-            refresh_delay = tick()
-            local progress = i/table.maxn(nodes)
-            visualisation_configurations.progressGUIPath.ProgressInformation.Text = visualisation_configurations.node_creation_text .. "\n" .. i .. "/" .. table.maxn(nodes) .. " (" .. math.floor(progress * 100) .. "%)"
-            visualisation_configurations.progressGUIPath.ProgressBar.Bar.Position = UDim2.new(progress - 1, 0, 0, 0)
+        if path_interrupt == true then
+            break
         end
+    end
+
+    updateUI:Disconnect()
+
+    local progress = at_node/table.maxn(nodes)
+    visualisation_configurations.progressGUIPath.ProgressInformation.Text = visualisation_configurations.node_creation_text .. "\n" .. at_node .. "/" .. table.maxn(nodes) .. " (" .. math.floor(progress * 100) .. "%)"
+    visualisation_configurations.progressGUIPath.ProgressBar.Bar.Position = UDim2.new(progress - 1, 0, 0, 0)
+
+    if path_interrupt == false then
+        for _, node in pairs(created_nodes) do
+            node.Parent = pathFolder
+        end
+    else
+        table.clear(created_nodes)
     end
 
     if log_level >= 1 then
@@ -224,16 +284,14 @@ end
 Sorts the part_index dictionary
 N.B. The parts that are closest to the start location will be put last
 ]]
-function SortByFurthest(tableOfNodes : {node_information}) : {node_information}
-    table.sort(tableOfNodes, function(node_one : node_information, node_two : node_information)
-        if node_one.attributes.distance > node_two.attributes.distance then
-            return true
-        end
-    
-        return false
-    end)
+function ReverseSort<A>(tableToBeReversed : {A}) : {A}
+    local new_table = {}
 
-    return tableOfNodes
+    for i = table.maxn(tableToBeReversed), 1, -1 do
+        new_table[table.maxn(tableToBeReversed)+1-i] = tableToBeReversed[i]
+    end
+
+    return new_table
 end
 
 --[[
@@ -242,10 +300,8 @@ Figures out which nodes to consider and which nodes not to consider
 function GetImportantKeyNodes(keyNodes : {node_information}) : {node_information}
     local key_nodes_reversed = {}
 
-    local index = 0
     for i = table.maxn(keyNodes), 1, -1 do
-        index += 1
-        key_nodes_reversed[index] = keyNodes[i]
+        key_nodes_reversed[table.maxn(keyNodes)+1-i] = keyNodes[i]
     end
 
     local organised_key_nodes = {}
@@ -303,31 +359,217 @@ function GetImportantKeyNodes(keyNodes : {node_information}) : {node_information
 end
 
 --[[
+Groups and sorts generated nodes into subtables based on key nodes
+]]
+function GroupAndSortNodesByKeyNodes(nodes : {node_information}, keyNodes : {node_information}) : {{node_information}}
+    local split_by_key_nodes  : {{node_information}} = {}
+
+    local next_key_node_index = 1
+    local next_key_node_node_number = keyNodes[next_key_node_index].node_number
+
+    for _, node : node_information in pairs(nodes) do
+        if node.node_number == next_key_node_node_number then
+            table.insert(split_by_key_nodes, {node})
+
+            if next_key_node_index < table.maxn(keyNodes) then
+                next_key_node_index += 1
+                next_key_node_node_number = keyNodes[next_key_node_index].node_number
+            end
+        elseif node.node_number > next_key_node_node_number then
+            continue
+        else
+            table.insert(split_by_key_nodes[table.maxn(split_by_key_nodes)], node)
+        end
+    end
+
+    local sorted_nodes : {{node_information}} = {}
+
+    local deep_copy_times_ran = 0
+
+    local function deepCopy<A>(original : {A}) : {A}
+        local copy = {}
+
+        deep_copy_times_ran += 1
+
+        for key, value in original do
+            copy[key] = type(value) == "table" and deepCopy(value) or value
+        end
+
+        if deep_copy_times_ran % 200 == 0 then
+            runService.Heartbeat:Wait()
+        end
+
+        return copy
+    end
+
+    local function Sort(nodesToSort : {node_information}) : {node_information}
+        local sorted : {node_information} = deepCopy(nodes)
+        table.remove(sorted, 1)
+
+        table.sort(sorted, function(node_one : node_information, node_two : node_information)
+            if (node_one.properties.position-nodesToSort[table.maxn(nodesToSort)].properties.position).Magnitude
+            < (node_two.properties.position-nodesToSort[table.maxn(nodesToSort)].properties.position).Magnitude then
+                return true
+            end
+
+            return false
+        end)
+
+        table.insert(sorted, 1, nodesToSort[1])
+
+        return sorted
+    end
+
+    for _, subgroup : {node_information} in pairs(split_by_key_nodes) do
+        table.insert(sorted_nodes, Sort(subgroup))
+    end
+
+    return sorted_nodes
+end
+
+--[[
 Figures out how to direct the path from all the nodes that have been created
 ]]
-function PathCalculation(startPosition : Vector3, endPosition : Vector3, nodeIndex : {node_information}, keyNodes : {node_information})
+function PathCalculation(startPosition : Vector3, endPosition : Vector3, nodeIndex : {node_information}, keyNodes : {node_information}) : {waypoint}
     local start_time = tick()
     
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nReversing node order..."
+
     -- Prepare some tables and work in reverse order to figure out how to build the path
-    local nodes_sorted = SortByFurthest(nodeIndex)
+    local nodes_sorted = ReverseSort(nodeIndex)
     local key_nodes_sorted = GetImportantKeyNodes(keyNodes)
 
     if path_interrupt == true then
         path_generating = false
-        return
+        return {}
     end
 
-    for _, node in pairs(key_nodes_sorted) do
-        node.Color = Color3.new(0.937255, 1.000000, 0.086275)
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nGrouping nodes..."
+
+    local split_by_key_nodes : {{node_information}} = GroupAndSortNodesByKeyNodes(nodes_sorted, key_nodes_sorted)
+
+    if path_interrupt == true then
+        path_generating = false
+        return {}
     end
 
-    local path = {}    
+    local grouped_path : {{node_information}} = {}
+
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nFinding path..."
+
+    -- THIS IS THE PATH CALCULATION STEP
+    for i, subgroup : {node_information} in pairs(split_by_key_nodes) do
+        local temp_table : {node_information} = {}
+        local previous_node : node_information = nil
+        local comparison_node = subgroup[1]
+
+        for j, node : node_information in pairs(subgroup) do
+            if j == 1 then
+                table.insert(temp_table, node)
+                previous_node = node
+                continue
+            elseif j == table.maxn(subgroup) then
+                table.insert(temp_table, node)
+            end
+
+            -- Check for whether the nodes are touching
+            if (previous_node.properties.position-node.properties.position).Magnitude > path_configurations.path_node_size*2 then
+                continue
+            end
+
+            -- Check for distance
+            if (previous_node.properties.position-comparison_node.properties.position).Magnitude
+                > (node.properties.position-comparison_node.properties.position).Magnitude then
+                continue
+            end
+
+            table.insert(temp_table, node)
+            previous_node = node
+        end
+
+        grouped_path[i] = temp_table
+
+        if path_interrupt == true then
+            break
+        end
+    end
+
+    if path_interrupt == true then
+        path_generating = false
+        return {}
+    end
+
+    local path : {node_information} = {}
+    local node_numbers : {string} = {}
+    local waypoints : {waypoint} = {}
+
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nCombining tables..."
+
+    for _, subgroup : {node_information} in pairs(grouped_path) do
+        for _, node : node_information in pairs(subgroup) do
+            table.insert(path, node)
+            table.insert(node_numbers, tostring(node.node_number))
+
+            local waypoint : waypoint = {
+                position = node.properties.position,
+                original_node_number = node.node_number,
+                jump = not node.attributes.on_ground
+            }
+
+            table.insert(waypoints, waypoint)
+        end
+
+        if path_interrupt == true then
+            break
+        end
+    end
+    
+    table.sort(waypoints, function(waypoint_one : waypoint, waypoint_two : waypoint)
+        if waypoint_one.original_node_number < waypoint_two.original_node_number then
+            return true
+        end
+
+        return false
+    end)
+
+    if path_interrupt == true then
+        path_generating = false
+        return {}
+    end
+
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nChanging nodes..."
+
+    for _, node : Part in pairs(pathFolder:GetChildren()) do
+        if table.find(node_numbers, node.Name) then
+            node.Color = Color3.new(0.000000, 1.000000, 0.298039)
+            node.Material = Enum.Material.SmoothPlastic
+            node.Transparency = 0.5
+        else
+            node.Color = Color3.new(0.937255, 1.000000, 0.086275)
+            node.Material = Enum.Material.Glass
+            node.Transparency = .6
+        end
+        node:ClearAllChildren()
+
+        if path_interrupt == true then
+            break
+        end
+    end
+
+    if path_interrupt == true then
+        path_generating = false
+        return {}
+    end
+
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nDone!"
 
     if log_level >= 1 then
         print("Finished generating path in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
     end
     
     path_generating = false
+
+    return waypoints
 end
 
 --[[
@@ -418,14 +660,6 @@ function CheckPathLimits(position : Vector3, part_origin : node_information, ove
 end
 
 --[[
-Checks requirements and sets the information for a node
-]]
-function NodeCreation()
-    
-end
-
-
---[[
 Returns every vector from a 3x3x3 cube sat on a position ignoring the centre
 If canJump is falase, then then the upper portion of the cube will not be returned
 ]]
@@ -488,7 +722,7 @@ function NextPositions(originPosition : Vector3, canJump : boolean) : {Vector3}
     end
 end
 
-function Algrithm(startPosition: Vector3, endPosition: Vector3)
+function Algrithm(startPosition: Vector3, endPosition: Vector3) : {waypoint}?
     local reached_destination : boolean = false
     local start_time : number = tick()
     local refresh_delay = tick()
@@ -500,6 +734,15 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
 
     -- Tell the script that the path is being generated (in-case manual interrupt)
     path_generating = true
+
+    -- Create a connection to update the UI every so often
+    local uiUpdate = runService.Heartbeat:Connect(function()
+        if tick()-refresh_delay >= visualisation_configurations.refresh_delay then
+            refresh_delay = tick()
+
+            visualisation_configurations.nodesCheckedGUIPath.Text = visualisation_configurations.nodes_checked_text .. "\n" .. table.maxn(checked_locations)
+        end
+    end)
 
     -- Used in ValidateLocation()
     local isInPartParams = OverlapParams.new()
@@ -523,7 +766,6 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
     table.insert(next_nodes_to_check, node_index[1])
     table.insert(key_nodes, node_index[1])
 
-    task.desynchronize()
     while reached_destination == false do
         -- Sort the table so that the closest parts are chosen first
         if (node_number % 5 == 0) or (node_number <= 500) then
@@ -535,6 +777,8 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
                 return false
             end)
         end
+
+        task.desynchronize()
 
         local next_node : node_information = next_nodes_to_check[1]
 
@@ -548,14 +792,6 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
             break
         end
 
-        if tick()-refresh_delay >= visualisation_configurations.refresh_delay then
-            refresh_delay = tick()
-
-            task.synchronize()
-            visualisation_configurations.nodesCheckedGUIPath.Text = visualisation_configurations.nodes_checked_text .. "\n" .. table.maxn(checked_locations)
-            task.desynchronize()
-        end
-
         if next_node.attributes.on_ground == true then
             can_jump = true
         else
@@ -563,7 +799,7 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
                 can_jump = true
             end
         end
-
+        
         for _, position : Vector3 in pairs(NextPositions(next_node.properties.position, can_jump)) do
             local new_node : node_information = {
                 node_number = node_number + 1,
@@ -626,17 +862,20 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
 
             table.insert(next_nodes_to_check, new_node)
             table.insert(node_index, new_node)
+
+            if node_number % (tick_delay) == 0 then
+                task.synchronize()
+                runService.Heartbeat:Wait()
+                task.desynchronize()
+            end
         end
 
         table.remove(next_nodes_to_check, 1)
-
-        if node_number % (tick_delay) == 0 then
-            task.synchronize()
-            runService.Heartbeat:Wait()
-            task.desynchronize()
-        end
+        
+        task.synchronize()
     end
-    task.synchronize()
+
+    uiUpdate:Disconnect()
 
     table.insert(key_nodes, node_index[node_number])
 
@@ -659,7 +898,7 @@ function Algrithm(startPosition: Vector3, endPosition: Vector3)
         return
     end
 
-    PathCalculation(startPosition, endPosition, node_index, key_nodes)
+    return PathCalculation(startPosition, endPosition, node_index, key_nodes)
 end
 
 --[[
@@ -687,6 +926,8 @@ function StartSequence()
 
     visualisation_configurations.progressGUIPath.ProgressBar.Bar.Position = UDim2.new(-1, 0, 0,0 )
     visualisation_configurations.progressGUIPath.ProgressInformation.Text = visualisation_configurations.node_creation_text .. "\n0/0 (100%)"
+    visualisation_configurations.calculationPhaseGUIPath.Text = visualisation_configurations.calculation_phase_text .. "\nNot calculating"
+    visualisation_configurations.nodesCheckedGUIPath.Text = visualisation_configurations.nodes_checked_text .. "\n0"
 
     local start_time = tick()
     local start_position = replicated_storage_objects.StartPosition.Value
@@ -699,12 +940,14 @@ function StartSequence()
     startPositionIndicator.Position = start_position
     endPositionIndicator.Position = end_position
 
-    -- debug.profilebegin("Algrithm")
-    Algrithm(start_position, end_position)
-    -- debug.profileend()
+    local waypoints : {waypoint}? = Algrithm(start_position, end_position)
 
     if log_level >= 1 then
         print("Finished creating path in " .. math.round((tick()-start_time)*1000)/1000 .. "s")
+    end
+
+    if waypoints then
+        TrialPath(waypoints)
     end
 end
 

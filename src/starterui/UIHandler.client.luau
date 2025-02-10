@@ -106,7 +106,7 @@ function ChangeValue(text : string, valueToChange : number, valueType : "uint"|"
         print("Updated delay interval")
 
         -- Prevent the game from dying
-        if value_one == nil or value_one == 0 then
+        if (value_one == nil) or (value_one == 0) then
             value_one = math.huge
         end
 
